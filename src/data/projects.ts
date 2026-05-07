@@ -9,6 +9,22 @@ export interface Project {
 
 export const projects: Project[] = [
   {
+    title: 'Game Night',
+    description:
+      'A web application that allows users to create and manage their own game nights, including scheduling, invitations, and game selection.',
+    technologies: [
+      'TypeScript',
+      'Tailwind',
+      'TanStack',
+      'React',
+      'Elixir',
+      'Phoenix',
+      'Ash Framework',
+    ],
+    liveUrl: 'https://gamenight.foundationsvtt.com',
+    pageUrl: '/projects/gamenight',
+  },
+  {
     title: 'Foundations',
     description:
       'A complete suite of tools for FoundryVTT game masters and streamers to creatively engage their audience and empower them to affect the game.',
