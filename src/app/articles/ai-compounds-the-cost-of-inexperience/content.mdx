@@ -1,0 +1,110 @@
+![Riveted steel arch-truss of the Hell Gate Bridge under construction, New York City](/articles/ai-compounds-the-cost-of-inexperience/header-hell-gate-bridge.jpg)
+_Arch, Hell Gate Bridge (under construction, New York City), Bain News Service, Library of Congress (LCCN 2003654875), public domain, via Wikimedia Commons._
+
+You have used Claude Code or Cursor enough to know what they're good at. You have also watched them confidently produce something subtly broken, then defend it in the chat as if it were obvious. When the model is wrong, it is wrong without knowing, and it will defend the answer until you do the work of proving otherwise.
+
+The industry is currently selling a different story. The pitch is that tools like these mean fewer engineers, and that the senior ranks are an expense AI now lets companies trim. I think that story has the diagnosis backwards. The work AI is good at is the work juniors used to grow into. The work it is bad at is the work seniors do. Trade one for the other and you are not running leaner. You are removing the load-bearing layer.
+
+We are already seeing what that looks like. A Cursor agent deleted a startup's production database (backups included) in roughly nine seconds. AWS Cost Explorer went down in one region for thirteen hours after Amazon's own Kiro reportedly deleted and recreated an environment. GitHub's CTO has publicly acknowledged a sustained run of degraded availability. None of these tools acted in a vacuum. Someone trusted them to.
+
+## Why this matters
+
+The model does not replace experienced engineering work. It augments certain parts of it well, and other parts it cannot touch at all. Three areas show up in my work week after week where the gap matters.
+
+The first is the requirements that nobody explicitly told the model about: security baselines, compliance constraints, the unglamorous decisions that determine whether the application is allowed to exist. The second is foundational architecture, where solving the local problem the wrong way creates a systemic problem that becomes expensive to undo. The third is maintainability, where unchecked drift turns a codebase into one nobody can confidently change.
+
+### Important requirements
+
+Consider a non-developer who decides to build an application with an AI coding tool. They have been told they do not need an engineer at all. Claude or Cursor will handle it. They describe the problem and the tool obliges. They are a lawyer; they need an app that lets clients submit legal documents. They get one. They ask where to put it so clients can reach it. They get a deployment.
+
+The application probably works. Clients can probably log in. But nobody told the model that this is an application containing legal documents, and the model did not stop to ask. So nobody made the following decisions:
+
+- End-to-end encryption using FIPS-compliant components
+- Authentication policy with appropriate password requirements
+- Storage of large documents in a private S3 bucket rather than the database
+- Network policies restricting AWS security groups to port 443 only
+- A CI/CD pipeline with SCA, SAST, and DAST tooling, blocking deployments on high-severity findings
+
+None of these are obscure. Any experienced engineer working in regulated industries would think of them inside of five minutes. The model would too, if asked. The problem is that nobody is in the room to ask.
+
+The lawyer here is a stand-in for any role that is being told they can ship production software without engineering involvement. The cost of the omission is not visible the day the app launches. It is visible the day a CISO asks how the application handles its data, or the day a breach hits PII, PHI, CUI, or classified information. By then the people who would have caught it are not in the room either, because the company let them go.
+
+### Foundational architecture
+
+AI tools solve the problem in front of them. They are bad at noticing that the problem itself is the wrong one to solve.
+
+Recently I asked Claude Code to build a search endpoint across submissions in our platform. Our forms are dynamic: fields are stored as JSONB and referenced by GUID keys so users can rename a field without breaking existing records. The endpoint needed to search across forms where, say, "Approval" was "Pending." The solution Claude generated: pull every form for the project, map field names to keys, and build a single query chained with OR clauses for each form-and-key pair. Locally correct. At organization scale (hundreds of forms, several filter fields combined), the query bloats fast.
+
+When I flagged the issue, the model offered several variants. All had obvious limits. The actual fix was a data model change. I had to recommend it.
+
+This is the pattern. The model knew SQL. The model knew JSONB. The model could write a query that did what I asked. It could not see that the data model itself was the constraint, because seeing that requires holding the whole system in your head and reasoning about how it will be used at scale. That is engineering work. It does not live in the chat window. It lives in the person at the keyboard.
+
+### Maintainability
+
+The maintainability problem compounds slowly. Ask the model to solve a problem in one place and it will solve that problem. Ask it to solve a similar problem in a different file a week later and it will solve that one too, usually with code that looks like the first solution but is subtly different. Across a codebase of any size, this proliferates copy-paste solutions you may never fully clean up. Each iteration drifts. When a bug surfaces, finding all the affected variants becomes its own project.
+
+Tell the model to reuse what already exists and it will often argue that this case is different enough. You can win the argument every time, but you have to be in the loop every time. The cost of not being in the loop is invisible until the codebase has aged six months and the abstractions that should have been built were not.
+
+Software architecture is the other half of this. The model stays at code level. It struggles with the abstractions that hold a system together as it grows. A 2026 empirical study tested several configurations of AI coding agents on architectural view generation. Claude Code, the general-purpose agent, scored **18.2% on level-of-detail success, the worst result in the study**. The authors concluded it "generated code-level granularity with excessive components, pointing to an inability of architectural abstraction." Even a purpose-built agent the researchers built themselves only reached 50%. Their conclusion: LLMs belong as assistive tools, not autonomous architects.
+
+## What experienced engineers do about it
+
+Knowing the failure modes is not enough. Working with AI coding tools well means putting practices in place that translate experienced judgment into rules the model will follow.
+
+Three practices have done the most for me: an architectural constitution, lightweight spec-driven development, and disciplined testing. None of them are new. AI did not invent any of them. The model just makes the cost of not having them louder.
+
+### Architectural guardrails
+
+The LLM makes decisions in the moment with whatever context is in front of it. If you do not tell it what your stack is, what your security requirements are, what your test policy is, and what your code conventions look like, it will pick something reasonable-sounding from the average of everything it has seen. Reasonable-sounding is not the same as correct for your codebase.
+
+A constitution (a short document declaring the rules of engagement) at minimum should cover technology stack with versions, security and compliance requirements, testing and verification policy, and code style and expected patterns.
+
+The cost of not having one shows up quickly. In a Node.js codebase, where most of the visible context is JavaScript, the model will probably stay in JavaScript. The day you ask it to write a one-off migration script, it may decide Python 3 is the better tool for the job, because it is, in the average case. I have had it do exactly this. I have also watched it start building Next.js screens inside an Elixir/Phoenix project's assets folder because the prompt used the words "static site" to refer to the marketing pages. Neither decision was unreasonable in isolation. Both were wrong for the codebase. A constitution prevents both.
+
+### Spec-driven development
+
+Spec-driven development, formalized in tools like GitHub's SpecKit (an open-source toolkit for writing executable specifications before code), gives the model a written specification to work against rather than a vibes-based prompt thread. Early on I appreciated it a lot. For a human team it can feel like waterfall, but for a model it works the way no human team works: it digests the whole spec, breaks it into checklists, and hands the pieces to sub-agents or task tools in parallel.
+
+The problem with SpecKit specifically, after enough use, is that the artifacts pile up. Once you are dozens of specs deep, finding the load-bearing decision becomes its own search problem. Both you and the model burn context navigating it.
+
+I have been moving toward lighter-weight artifacts. ADRs (architectural decision records, a short document capturing a decision and its reasoning) and PDRs (product design requirements, the product-side equivalent) capture the same intent: a decision, the reasoning behind it, the alternatives considered, the implications accepted. They do this without the execution scaffolding that makes SpecKit useful in the moment and noisy in retrospect. These are the decisions that otherwise become tribal knowledge: "we monitor this queue every 60 seconds because the polling sensitivity is low," "we chose a modular monolith over microservices because of these tradeoffs." The LLM cannot ask the senior engineer who made that decision two years ago. You need it written down. You will eventually anyway, because the senior engineer who made the decision is no longer at the company.
+
+### Red/green TDD
+
+Strict TDD lost ground in human engineering teams for reasons mostly about psychology. Tests get brittle. Over-testing means small application changes require sprawling test changes. Engineers want to build something, see it work, and move on, not write the test first.
+
+The model does not have any of these reactions. It does not get tired of writing tests. It does not feel the satisfaction of seeing code run. What it does have is the same fragility risk: over-testing means more cycles spent fixing tests than implementing features.
+
+What has worked for me is red/green TDD anchored to the product specification. I do not ask the model to test everything. I ask it to build tests that validate the feature behaves as the PRD describes. The model is not going to click through the application with the eye of a QA engineer. You can wire up Playwright tooling to give it that ability, but good unit and behavior tests against the spec usually catch the same things faster and cheaper.
+
+The other reason this matters: the model often does not know what downstream code its change touches, especially in a codebase with any meaningful abstraction. A rule of "run all the tests after each change" combined with reasonable coverage protects against regressions you would otherwise discover in production.
+
+## Conclusion
+
+The speed at which you can build is not the metric. The speed at which you can fail catastrophically is. For a side project that is fine. For a real product, the math changes quickly.
+
+We have early evidence of how this looks at scale. PocketOS lost its production database (and all volume-level backups) in a single Cursor API call that completed in roughly nine seconds. AWS Cost Explorer went dark in one region for thirteen hours after Kiro reportedly deleted and recreated the environment; Amazon disputes the framing but has since mandated peer review for production changes. GitHub's CTO has publicly acknowledged a sustained run of degraded availability, attributing it to architectural coupling and load-shedding problems. Claude itself has fallen below its 99% standard across components in Q1 2026. The cracks are visible.
+
+I want to be precise about one thing. The model did not delete those databases. People did. They let it. They ceded responsibility to a tool that does not have the context, the supervision, or the accountability to hold it. This is why I argue for written practices: constitutions, ADRs, PDRs, test discipline. They are not bureaucratic overhead. They are the artifacts that put experienced engineering judgment into the loop the model is operating in.
+
+Software failures used to cost hours. They now cost days, and they increasingly cost data that does not come back. We do not hand commit access to a junior developer and tell them to figure it out unsupervised, so why are we doing that with the model? And while we are doing it, the industry is letting go the engineers who would have caught the mistake. The cost of that choice is not yet fully on the books. It will be.
+
+## Sources
+
+- [Matt Pocock: Software Fundamentals Matter More Than Ever](https://www.youtube.com/watch?v=v4F1gFy-hqg)
+- [Architectural Decision Records (adr.github.io)](https://adr.github.io/)
+- [GitHub SpecKit](https://github.com/github/spec-kit)
+- [Atlassian: Product Design Requirements](https://www.atlassian.com/agile/product-management/requirements)
+- [Devforth: Why LLMs Will Always Be Terrible At Software Architecture](https://devforth.io/insights/why-llms-will-be-always-terrible-at-software-architecture/)
+- [Sun et al., LLM-based Automated Architecture View Generation: Where Are We Now?, arXiv:2603.21178 (March 2026)](https://arxiv.org/abs/2603.21178)
+- [Su et al., Evaluating Large Language Models for Detecting Architectural Decision Violations, arXiv:2602.07609 (February 2026)](https://arxiv.org/abs/2602.07609)
+- [InfoQ: GitHub Acknowledges Recent Outages, Cites Scaling Challenges (April 2026)](https://www.infoq.com/news/2026/04/github-outages-scaling/)
+- [GitHub Availability Report: April 2026](https://github.blog/news-insights/company-news/github-availability-report-april-2026/)
+- [Anthropic Claude Status](https://status.claude.com/)
+- [The Decoder: AWS AI coding tool decided to delete and recreate a customer-facing system (Kiro report)](https://the-decoder.com/aws-ai-coding-tool-decided-to-delete-and-recreate-a-customer-facing-system-causing-13-hour-outage-report-says/)
+- [About Amazon: AI coding bot didn't take down AWS (Amazon's rebuttal)](https://www.aboutamazon.com/news/aws/aws-service-outage-ai-bot-kiro)
+- [The Register: Cursor-Opus agent snuffs out startup's production database (PocketOS)](https://www.theregister.com/2026/04/27/cursoropus_agent_snuffs_out_pocketos/)
+- [Fast Company: Cursor Claude AI agent deleted PocketOS database (Jer Crane interview)](https://www.fastcompany.com/91533544/cursor-claude-ai-agent-deleted-software-company-pocket-os-database-jer-crane)
+- [The New Stack: AI agents credential crisis](https://thenewstack.io/ai-agents-credential-crisis/)
+
+_Header image: "Arch, Hell Gate Bridge (under construction, New York City)," Bain News Service, [Library of Congress (LCCN 2003654875)](https://www.loc.gov/item/2003654875/), public domain, via Wikimedia Commons._

@@ -3,7 +3,7 @@ import SectionHeading from "@/components/ui/SectionHeading";
 export default function About() {
   return (
     <section id="about" className="bg-surface-alt py-20 md:py-28">
-      <div className="mx-auto max-w-4xl px-6">
+      <div className="mx-auto max-w-6xl px-6">
         <SectionHeading title="About" />
         <div className="space-y-4 leading-relaxed text-text-muted">
           <p>

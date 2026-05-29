@@ -5,7 +5,7 @@ import { skillCategories } from "@/data/skills";
 export default function Skills() {
   return (
     <section id="skills" className="bg-surface-alt py-20 md:py-28">
-      <div className="mx-auto max-w-4xl px-6">
+      <div className="mx-auto max-w-6xl px-6">
         <SectionHeading title="Skills" />
         <div className="space-y-8">
           {skillCategories.map((category) => (
