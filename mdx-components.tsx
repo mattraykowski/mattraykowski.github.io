@@ -46,13 +46,23 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
         {children}
       </blockquote>
     ),
-    code: ({ children }) => (
-      <code className="rounded border border-border bg-surface-alt px-1.5 py-0.5 font-mono text-sm text-accent-purple">
-        {children}
-      </code>
-    ),
-    pre: ({ children }) => (
-      <pre className="my-6 overflow-x-auto rounded border border-border bg-surface-alt p-4 font-mono text-sm">
+    code: ({ children, ...props }) => {
+      // rehype-pretty-code adds data-language to highlighted block code;
+      // let those pass through untouched so Shiki's token styles apply.
+      if ('data-language' in props) {
+        return <code {...props}>{children}</code>;
+      }
+      return (
+        <code className="rounded border border-border bg-surface-alt px-1.5 py-0.5 font-mono text-sm text-accent-purple">
+          {children}
+        </code>
+      );
+    },
+    pre: ({ children, ...props }) => (
+      <pre
+        {...props}
+        className="my-6 overflow-x-auto rounded border border-border bg-surface-alt p-4 font-mono text-sm"
+      >
         {children}
       </pre>
     ),

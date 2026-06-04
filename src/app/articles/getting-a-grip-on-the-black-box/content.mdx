@@ -1,0 +1,229 @@
+import Image from 'next/image';
+
+<figure>
+  <Image
+    src="/articles/getting-a-grip-on-the-black-box/header-engine-cutaway.jpg"
+    alt="Cutaway of a business-jet turbofan engine on display, internal compressor and turbine stages exposed"
+    width={1600}
+    height={900}
+    priority
+  />
+  <figcaption>
+    <em>
+      "EBACE 2018, Le Grand-Saconnex (BL7C0410)," Matt Blume, 2018, via
+      Wikimedia Commons, CC BY-SA 4.0.
+    </em>
+  </figcaption>
+</figure>
+
+We are shipping software whose most important part is a black box. We can't fully reproduce it, we can't fully control it, and we are pointing it at decisions that matter. That is an unsettling thing to admit, and most of the people asking us to ship faster don't feel it the way we do. For my current company this was already true before the age of LLMs. These little mystery boxes have only raised the stakes.
+
+You're right to find it hard. Some of it really is mysterious, even magical. I am not going to talk you out of that. But you don't earn confidence by pretending the black box is clear. You earn it by taking a firm grip on the parts you can control, and letting that grip shrink the part you can't. This article is about how much of an agent turns out to be controllable once you go looking.
+
+## Why This Is Hard
+
+Start with why an agent resists testing in the first place. It has a memory of past events, so the same prompt today and tomorrow can land on different ground. Its tool calls return different data depending on what else has happened in the system. The user's prompt is their own, phrased however they please. And the model underneath all of it is a black box. Those variables compound. Put them together and you may never replicate a user's exact situation, which means the first move of normal debugging, reproduce the problem, is off the table before you start.
+
+Here is what that looks like in practice. On our platform, a workflow is an XML document with a fairly abstract structure, and the assistant can build one for you. While doing that, it made a quiet and obscure mistake: it marked the start node as deferred. That is not a slightly wrong choice. It is an impossible one. A start node cannot be deferred. But nothing crashed when the agent wrote it. The XML was well formed, every tag closed, and any schema validator would have waved it through. The cost did not arrive until execution, when the workflow started and then simply sat there, going nowhere.
+
+The symptom is silence. No error, no crash, just a workflow that starts and never moves past the deferred node, waiting on an outside interaction that nobody designed and that is never going to come. Whether this bug bites you depends a lot on who is sitting in front of it. An experienced builder might smell that something is off and go read the raw XML. A newer one just sees a workflow that runs and then does nothing, with no idea why. The platform behaved correctly the entire time. The agent did not create the cost of inexperience. It found it, completely by accident.
+
+## Troubleshooting
+
+So how do you chase down a bug you cannot reproduce? The good news is that troubleshooting an agent is not a new discipline. It is the old one. When you can't reproduce a problem, you don't reproduce it, you narrow it. Logs and metrics tell you where the problem can't be, and what is left is where it is. The agent does not change that method. It just adds one more suspect to the lineup, a black box, alongside all the usual ones. And it means you start where you always start when you are flying blind: observability.
+
+Spring AI builds on the observability tools already in the Spring ecosystem, so most of the work is turning it on. Add the actuator starter to your build and you have the foundation in place.
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+With that in place, Spring AI records metrics and traces for its core pieces, including the `ChatClient`, the `ChatModel`, and the `VectorStore`. But the one thing you most want when chasing a bug like the deferred start node, the actual prompt and the model's completion, is not captured by default. That is a deliberate choice, because prompt content is often large and can hold sensitive information. Opting in is simple:
+
+```properties
+spring.ai.chat.client.observations.log-prompt=true
+spring.ai.chat.client.observations.log-completion=true
+```
+
+Be careful with these two settings. Flipping them on means the prompt and the response are written to your logs, and if either one carries customer data, you have just put that data somewhere new. Turn it on where you need it, know what is in your prompts, and treat those logs with the same care as the data they now contain. In some environments you will want to control these with environment variables and switch them on only when you need them. You may also want to route this output away from your primary log pipeline rather than letting it flow straight into structured logging and your ELK stack. A separate, protected log file that you only open when there is a problem is often the safer choice. The hard part here is not turning it on. It is deciding what to do with the information in terms of use, operations, and safety.
+
+## Finding the Root Cause
+
+Once you can read the prompt, the next question is what to capture alongside it. To rebuild a failure I needed three things: the final prompt as produced, the template it came from, and the parameters fed into that template. With templates that shift based on where the user is in the app, those three together are the only way to reconstruct the exact input. But the detail that actually cracked this case was a fourth one I did not expect to need: which skills the agent had used.
+
+That is where the deferred start node came from. The model had not gone off and invented an impossible state on its own. It had followed a skill, the one responsible for proper workflow construction, and that skill gave it bad guidance. The model did exactly what it was told. The instructions were wrong. This is worth sitting with, because "the model hallucinated" is the explanation we reach for first, and it is the one that absolves us. A lot of agent misbehavior is the agent faithfully following words that we wrote.
+
+The fix was two sentences added to the skill: that a start node can never be deferred, and that defers should only be used when an external system is expected to resume the work. The rule was never complicated. The model simply did not know it, because we had never said it out loud. A good part of prompt engineering turns out to be writing down the domain rules you know so well that you forgot they needed saying.
+
+And here is the honest part. It did not become a test. We fixed the skill and moved on, because at the time we did not know how to test for it. That is the real state of the practice. You can find a bug, understand it, and fix it, and still have no way to write the regression test that proves it stays fixed. The instinct from normal software, that every bug becomes a test, runs straight into a wall: how do you write an assertion against a black box?
+
+## Testing What You Control
+
+The way through that wall starts with a simple admission: you cannot test the model directly, so test everything around it first. For a while that is exactly what we did. We tested the perimeter we could control and left the middle alone. The tool calling functions, the structured output parsers, the decision router that picks which sub-agent handles a request, all of that is deterministic, and deterministic code gets ordinary tests. The model itself we could not control, so for a time we simply did not test it.
+
+It helps to picture your coverage as a shape. What we had was a solid ring around an untested center. That ring is worth building, and it is not the whole job. Testing the parts you control is necessary, and it is not sufficient, because the deferred start node lived in the center of the ring. Everything we had tested passed while that bug shipped. So the rest of this comes in two parts: first the perimeter, where the testing is familiar, and then the center, where we finally found a way in.
+
+### Tool Calling
+
+Start with the tools, because a tight set of tools you own and maintain is the cheapest way to shrink the surface area of things that can go wrong. A tool removes ambiguity in execution. A structured call to create a form behaves consistently in a way that letting the model discover the same operation through an API spec never will. The tighter the tool, the fewer ways it can be used wrong.
+
+There are two different questions hiding inside "does my tool calling work," and they need two different tests. The first is whether the tool does the right thing: the correct API call, the correct database write, the expected exception. This is ordinary JUnit and Mockito work, and the model is not involved at all.
+
+```java
+@Test
+void searchUsers_callsRepositoryWithFlag() {
+    UserRepository repo = mock(UserRepository.class);
+    UserTools tools = new UserTools(repo);
+
+    tools.searchUsers("admin");
+
+    verify(repo).findByFlag("admin");
+}
+```
+
+The second question is whether the model actually reaches for the tool when the user's words call for it. A request like "search users for admins" should produce a tool call for `user_search`, not a guess written out in prose. That test is really checking your tool descriptions and system prompts, the text that guides the model to the right tool, rather than your own code.
+
+```java
+@Test
+void adminRequest_triggersUserSearchTool() {
+    ChatResponse response = chatClient.prompt()
+        .user("search users for admins")
+        .call()
+        .chatResponse();
+
+    boolean calledUserSearch = response.getResult().getOutput()
+        .getToolCalls().stream()
+        .anyMatch(call -> call.name().equals("user_search"));
+
+    assertThat(calledUserSearch).isTrue();
+}
+```
+
+### Structured Output Conversion
+
+The next piece of the perimeter sits at the boundary between the model and the frontend. Spring AI can turn a model's free text response into a Java object or record, and we lean on this to get answers back in a JSON shape the user interface can act on. You define the format you want, parse the response into something like a `User` record with a `BeanOutputConverter`, and now the frontend can do something concrete with the result, such as navigating straight to the user that was just created or updated.
+
+Testing this is refreshingly old-fashioned, because you do not need the model at all. You mock the model's response and run it through the converter. The happy path checks that a well formed response produces a valid `User`. The sad path is the one that matters most: a malformed response must be rejected, not quietly parsed into a plausible but wrong object.
+
+```java
+@Test
+void parsesValidUserResponse() {
+    BeanOutputConverter<User> converter = new BeanOutputConverter<>(User.class);
+
+    User user = converter.convert("{\"id\": 42, \"name\": \"Ada\"}");
+
+    assertThat(user.id()).isEqualTo(42);
+    assertThat(user.name()).isEqualTo("Ada");
+}
+
+@Test
+void rejectsMalformedResponse() {
+    BeanOutputConverter<User> converter = new BeanOutputConverter<>(User.class);
+
+    assertThatThrownBy(() -> converter.convert("not even json"))
+        .isInstanceOf(RuntimeException.class);
+}
+```
+
+You are testing three things here: that valid responses parse, that invalid responses are rejected rather than falsely accepted, and that failures fail in the way you expect. What you are not testing is whether the model found the right user or filled in the fields correctly. That is a different layer, the evaluation layer, and it gets tested there. The discipline that makes all of this work is knowing which layer a test belongs to. Mock the model to test your plumbing, and judge the model to test its judgment. Do not ask one test to do both.
+
+## Evaluation Testing
+
+The perimeter is the part that felt familiar, and it was never where the deferred start node lived. That bug was in the center, in the model's own judgment, and nothing in the ring could see it. So this is where we stopped working around the black box and started testing it directly.
+
+The way in is to test the model with another model. Spring AI provides this through its `Evaluator` interface. You hand it the user's input, the context the request had, and the model's response, and it returns a simple pass or fail.
+
+```java
+@FunctionalInterface
+public interface Evaluator {
+    EvaluationResponse evaluate(EvaluationRequest evaluationRequest);
+}
+```
+
+The important part is that the judge does not have to be the same model that did the work. You can pick a different model, even a smaller and cheaper one, whose only job is to grade. When testing locally I have used Ollama with a small model to keep my costs down, and reached for a larger code-focused model when grading generated code. If you cannot run a model locally, a hosted flagship model works for the same purpose at a higher price.
+
+This is a different shape of test from everything in the perimeter. It does not assert that one exact string equals another. It asks a second model a yes or no question about the first model's output, and lets you build assertions on the answer. That shift is what finally lets us test the things we could only watch before: whether the router made the right call, whether a response is grounded in fact, and whether the model is staying inside the rules of our domain.
+
+### Judging the Decision Router
+
+Recall the decision router. We can already test the deterministic half: given a fixed classification, does the router delegate to the correct sub-agent. What we could not test there was the part that matters most, whether the model classified the request correctly in the first place. That is a judgment call on fuzzy, human-phrased input, and it belongs here.
+
+The router itself is almost embarrassingly small. It is a `ChatClient` with one job baked into the system prompt.
+
+```java
+return this.chatClient
+    .prompt()
+    .user(user)
+    .system("Classify the request. Reply ONLY with: [ADMIN], [BUILDER], or [MANAGER].")
+    .call()
+    .content();
+```
+
+To test that it classifies correctly, we reuse the same evaluator machinery. We state the correct answer as context, run a realistic request through the router, and let a `RelevancyEvaluator` judge whether the router's pick lines up with what we said was right.
+
+```java
+String userInput = "Show me a list of system administrators.";
+String decision = decisionRouter.routeRequest(userInput);
+String context = "The user intends to search for users in the system with specific flags. The correct classification must strictly be [ADMIN]";
+
+EvaluationRequest request = new EvaluationRequest(userInput, context, decision);
+RelevancyEvaluator judge = new RelevancyEvaluator(chatClientBuilder);
+EvaluationResponse evalResponse = judge.evaluate(request);
+
+assertThat(evalResponse.isPass())
+    .withFailMessage(() -> String.format("Routing failed: %s", evalResponse.getFeedback()))
+    .isTrue();
+```
+
+Note the `getFeedback()` in the failure message. When the judge fails the test, it also tells you why, which is the difference between a red test you can act on and one you just stare at. The code here is not the hard part. The hard part is building the list of requests to test against, a fair and ever growing set of the things real users will actually type. That is a large enough problem to be its own article.
+
+### Fact Checking the Domain Rules
+
+This is where the deferred start node finally becomes a test. Spring AI's `FactCheckingEvaluator` takes a document, which is the context, and a claim, and tells you whether the context supports the claim. We can turn our domain rule into exactly that kind of check. Feed it the context a workflow request would have had, make the claim "Start nodes can be deferred," and demand that the evaluator reject it.
+
+```java
+String context = "A workflow start node begins execution immediately. "
+    + "A deferred node waits for an external system to resume it.";
+String claim = "Start nodes can be deferred.";
+
+EvaluationRequest request = new EvaluationRequest(context, claim);
+FactCheckingEvaluator judge = new FactCheckingEvaluator(chatClientBuilder);
+EvaluationResponse evalResponse = judge.evaluate(request);
+
+assertFalse(evalResponse.isPass(), "Start nodes cannot be deferred.");
+```
+
+The bug we did not know how to test, the one we fixed and quietly moved on from, is now a red test if that rule ever erodes again. The loop closed. It just took the right tool to close it. And the judge here does not need a flagship model. Spring AI points at small models built for this exact check, such as Bespoke's Minicheck running through Ollama, so you are not paying premium prices every time the suite runs. The judge can be cheap precisely because grading is a narrower job than generating.
+
+### Testing a Black Box With a Black Box
+
+There is a fair objection waiting here. You just watched me assert against a model's verdict using another model. If the thing under test is not deterministic, and the judge is not deterministic either, what have you actually proven?
+
+The honest answer is that you pin everything you can. Use the same context, the same tools, and the same model as your running environment, and the response is close enough to equivalent that you can assert against it. You are not eliminating the black box. There could always be a hidden variable you did not account for. You are shrinking the space it can hide in until the test means something.
+
+The other half of the answer is to change what you expect a flaky eval to mean. We run these tests on every change to the platform. So when an eval that used to pass starts wavering, that is not noise to suppress. It is the first signal that something shifted, in a template, a tool, or the model itself. I would much rather a CI job start wobbling than have a customer be the one to discover that the assistant is now generating bad business logic or malformed forms. A flaky test, in this world, is the cheapest bug report you will ever get.
+
+## Where That Leaves Me
+
+I still cannot test every eventuality, and I never will. The black box is still a black box. But I have far more confidence than I had a few months ago, and it comes from one plain fact: the parts I control now have validation behind them. That is not certainty, because certainty was never on offer. It is enough solid ground under my feet that I am no longer guessing.
+
+If you take one thing from this, let it be that you do not need full coverage to be better off. Test one tool. Write one evaluation. Add observability to one flow. A small investment buys a large amount of peace of mind, and something beats nothing by a wide margin. The first step is allowed to be tiny.
+
+If you want an order to work in, here is the one I would choose:
+
+1. Add observability first. It is simple to switch on, and it is the thing that turns "the agent did something weird" into a prompt you can actually read.
+2. Test the perimeter tools. The deterministic parts, your tool calls, parsers, and the router's delegation, get ordinary tests with no model required.
+3. Add a few happy-path evaluation cases. Not an exhaustive suite. Just enough to start grading the center, and grow it as you go.
+
+The black box is still a black box. But it is a little less mysterious now, and a little less turns out to be enough to keep going.
+
+## Sources
+
+- [Spring AI Observability](https://docs.spring.io/spring-ai/reference/observability/index.html)
+- [Spring AI Model Evaluation](https://docs.spring.io/spring-ai/reference/api/testing.html)
+- [PostHog: Testing AI Agents](https://posthog.com/blog/testing-ai-agents)
+
+_Header image: "EBACE 2018, Le Grand-Saconnex (BL7C0410)," [Matt Blume](https://commons.wikimedia.org/wiki/User:MB-one), 2018, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:EBACE_2018,_Le_Grand-Saconnex_(BL7C0410)_(cropped).jpg), [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0)._

@@ -19,7 +19,7 @@ export default function ArticleLayout({
   children: ReactNode;
 }) {
   return (
-    <article className="mx-auto max-w-3xl px-6 py-20 md:py-28">
+    <article className="mx-auto max-w-6xl px-6 py-20 md:py-28">
       <p className="mb-2 font-mono text-sm text-accent-green">
         <span className="text-text-muted">$</span> cat articles/{article.slug}.md
       </p>
