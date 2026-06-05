@@ -1,19 +1,13 @@
-import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import ArticleLayout from '@/components/layout/ArticleLayout';
 import { articles } from '@/data/articles';
-import { SITE } from '@/lib/constants';
+import { articleMetadata } from '@/lib/metadata';
 import Content from './content.mdx';
 
 const slug = 'ai-compounds-the-cost-of-inexperience';
 const article = articles.find((a) => a.slug === slug);
 
-export const metadata: Metadata = article
-  ? {
-      title: `${article.title} — ${SITE.name}`,
-      description: article.summary,
-    }
-  : {};
+export const metadata = articleMetadata(slug);
 
 export default function Page() {
   if (!article) notFound();

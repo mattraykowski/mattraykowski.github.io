@@ -3,6 +3,8 @@ interface ArticleBase {
   summary: string;
   date: string;
   tags: string[];
+  /** Path (relative to /public) to the social-preview / header image. */
+  image?: string;
 }
 
 interface HostedArticle extends ArticleBase {
@@ -30,6 +32,8 @@ export const articles: Article[] = [
       'SoftwareArchitecture',
     ],
     slug: 'ai-compounds-the-cost-of-inexperience',
+    image:
+      '/articles/ai-compounds-the-cost-of-inexperience/header-hell-gate-bridge.jpg',
   },
   {
     title: 'Getting a Grip on the Black Box',
@@ -44,6 +48,8 @@ export const articles: Article[] = [
       'Testing',
     ],
     slug: 'getting-a-grip-on-the-black-box',
+    image:
+      '/articles/getting-a-grip-on-the-black-box/header-engine-cutaway.jpg',
   },
 ];
 
