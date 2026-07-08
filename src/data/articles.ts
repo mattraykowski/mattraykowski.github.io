@@ -51,6 +51,15 @@ export const articles: Article[] = [
     image:
       '/articles/getting-a-grip-on-the-black-box/header-engine-cutaway.jpg',
   },
+  {
+    title: 'The Comfortable Lie About Agent Security',
+    summary:
+      "Securing an AI agent on a platform built for trusted human admins: why the model must never be the security boundary, where privileged integrations break that promise, and how Meta's Rule of Two decides when the agent has to stop and ask a human.",
+    date: '2026-07-08',
+    tags: ['AI', 'Security', 'SpringAI', 'Java', 'MCP'],
+    slug: 'agent-security-lies',
+    image: '/articles/agent-security-lies/header-somme-trench-map-og.jpg',
+  },
 ];
 
 export function sortedArticles(): Article[] {
