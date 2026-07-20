@@ -1,0 +1,239 @@
+import Image from 'next/image';
+
+<figure>
+  <Image
+    src="/articles/elixir-why-its-my-side-project-language/header-the-alchemist.jpg"
+    alt="An alchemist at work in his cluttered workshop, surrounded by books, jars, and apparatus"
+    width={1500}
+    height={1067}
+    priority
+  />
+  <figcaption>
+    <em>
+      "The Alchemist," David Teniers the Younger (17th century), public domain,
+      via{' '}
+      <a href="https://commons.wikimedia.org/wiki/File:David_Teniers_-_The_Alchemist_Cat689.jpg">
+        Wikimedia Commons
+      </a>
+      .
+    </em>
+  </figcaption>
+</figure>
+
+I picked up Elixir, Phoenix, and Ash because they made my life easier. What I did not expect was how long it would take me to notice just how much easier. I mean, I knew but I didn't truly appreciate what simplicity and power they gave me until recently.
+
+The realization came at the end of an ordinary evening of side-project work. I had finished a feature, sat back, and looked at what I had actually done to ship it. There was the change to my data model. Then the change to expose it over the wire. Then the matching change on the frontend. Then the state that had to know about all of it. One idea, typed out four times in four different shapes, and I had been nodding along the whole way as if that were normal. All of this because I still wanted to use React, TypeScript, Shadcn, and Zustand since they're my *frontend* side project languages.
+
+The thing is, Ash has a tagline for exactly this: "Declare Once, Derive the Rest." That is the entire promise. Say a thing one time, in one place, and let the framework produce everything that follows from it. And here I was, declaring the same thing over and over, by hand, in files that did not know about each other.
+
+The framework was not the problem. I was the one fighting it, and I had not even noticed I was throwing punches. This is the story of how I stopped, and why Elixir, Phoenix, and Ash have become the stack I reach for every time a project is mine and mine alone.
+
+## What a side project is actually for
+
+At work, the tools are not always my call. There are forces well beyond my own preference such as existing systems, team familiarity, hiring, and the weight of a decision made years ago. And they tend to land me on something heavy and dependable like Java and Spring Boot. That is fine, and they provide a lot of value where they are used.
+
+A side project is a different thing entirely. The only person I have to satisfy is me. Nobody is going to inherit the codebase, sit in a planning meeting about it, or ask why I chose what I chose. So the math changes. I am not optimizing for the safest hire or the biggest ecosystem. I want it light, I want it fun, and I want it simple. Most of all, I want to enjoy the way I get to solve the problem, because enjoying that is most of the point of doing it at all.
+
+Here is the part that is easy to skip past, though. When I started my most recent project I was already comfortable in Elixir and Phoenix. The pull back toward my old habits was not on the backend at all. It was the frontend. React, TypeScript, Shadcn, and Zustand were my comfortable frontend tools, the ones I reached for without thinking, and so I brought them along even into a project whose whole point was to be light and fun. Comfort is sneaky like that. It follows you into the one place you went specifically to get away from it.
+
+## Game Night, and the glue I kept maintaining
+
+So my current side project is called Game Night. It is a tool for game masters and players to schedule the evenings they will get together to play. A GM sets the nights they can host. That schedule goes out to the players, who fill in their own availability against it. While the players are on the schedule view, they can see each other's choices update live, so one person toggling a night shows up for everyone else in the moment it happens.
+
+I built the first version as a modern split-stack app. Elixir, Phoenix, and Ash on the backend, React and Shadcn on the front, with `ash_typescript` generating the RPC layer between them and Zustand holding client state. To be clear about what worked: `ash_typescript` does a ton of work for you, without it the duplication would have been even worse. It hands you RPC-style functions to call and generates TypeScript types straight from your server-side resources. That is more than most setups give you for free, and I was grateful for it.
+
+The friction was not in that generated layer. It was in everything around it. Every action needed extra configuration to be exposed as an RPC function. Every piece of server state needed a matching home on the client, which meant standing up and wiring a state manager. And all of it rode on top of the full JavaScript bundler ecosystem. The `phoenix_vite` plugin made that last part palatable, but palatable is not the same as gone. It was still one more build environment to hold in my head.
+
+None of this was bad, exactly. It just felt very disconnected. I had two competent halves of an application glued together by hand in the same exact repo. So one evening I made the call I had been circling for weeks: I ripped React out completely and moved the whole frontend to Phoenix LiveView. The doubling stopped that day, and it did not come back.
+
+## The language I actually enjoy writing
+
+Once the project was one language top to bottom, I remembered why I liked writing Elixir in the first place. First and foremost, there is the pipe operator. Java and JavaScript can chain calls in some situations, but push a transformation far enough and you get the nested mess, a call inside a call inside a call that you have to read from the inside out. The pipe operator kills that. Data goes in the front, flows left to right, and comes out the other side transformed.
+
+Take something small such as sorting a list of artists by how many albums they have released. Here it is in Java:
+
+```java
+List<Artist> sorted = artists.stream()
+  .sorted(Comparator.comparingInt((Artist a) -> a.albums.size()).reversed())
+  .toList();
+```
+
+And here it is in Elixir:
+
+```elixir
+sorted =
+  artists
+  |> Enum.sort_by(fn artist -> length(artist.albums) end, :desc)
+```
+
+This is the same task and while it doesn't look too different one of them reads the way you would describe the job out loud. The other you assemble a bit more in your head. The entire standard library is designed around the pipe, and it is consistent and full-featured in a way that a lot of languages are not. Much of that comes down to the fact that Elixir was functional from day one. In other languages, functional programming was bolted on later and retrofitted onto something built around mutable state and objects. You can feel the difference. In Elixir the entire language is built around consistent principles. Functions and features that violate this are reshaped or removed.
+
+The other thing that keeps me here is that concurrency and lazy evaluation are native rather than a library you reach for. Say I am loading a potentially massive `ndjson` file of every known artist and I only want the prolific ones, fifteen or more albums:
+
+```elixir
+"artists.ndjson"
+|> File.stream!()
+|> Stream.map(&parse_artist/1)
+|> Stream.map(fn artist -> {artist, length(artist.albums)} end)
+|> Stream.filter(fn {_artist, count} -> count > 15 end)
+|> Enum.sort_by(fn {_artist, count} -> count end, :desc)
+```
+
+Notice that `Stream.map` and `Enum.map` read almost identically. Eventually something has to land in memory, but until the last possible moment I stay lazy, transforming records one at a time instead of loading the whole file at once. Going from eager to lazy is close to a one-word change. The language does not make me re-architect anything to get there, and that kind of low-friction power is exactly what I want when the whole point is to enjoy the work.
+
+## What Ash buys me over plain Phoenix
+
+I love Phoenix on its own, but I understand why some people bounce off how spread out a single model can feel. It reminds me of the old Redux days in the React world, where one feature lived across separate files for reducers, actions, and state, and a single change meant a tour of all of them. Plain Phoenix is much milder than that, and the generators help, but you still end up with a `games.ex` holding context functions like `Games.list_games/0`, a `game.ex` holding the Ecto schema and helpers like `changeset/2`, and, easy to forget, a migration. The generators write the initial boilerplate, but after that it is yours to keep in sync by hand. Additionally, while the generators do help with a lot of this, they also produce a lot of boilerplate code that accumulates over time.
+
+Ash handles this differently. Instead of a Games context you have a Games domain, which is little more than a list of the resources it owns:
+
+```elixir
+defmodule GameNight.Games do
+  use Ash.Domain, otp_app: :game_night
+
+  resources do
+    resource GameNight.Games.Game
+  end
+end
+```
+
+And then everything about a resource lives in one place. The database table, the indexes, the attributes and their constraints, and the actions you can take on it all sit in a single file:
+
+```elixir
+defmodule GameNight.Games.Game do
+  use Ash.Resource,
+    otp_app: :game_night,
+    domain: GameNight.Games,
+    data_layer: AshPostgres.DataLayer
+
+  postgres do
+    table "games"
+    repo GameNight.Repo
+
+    references do
+      reference :owner, on_delete: :delete
+    end
+
+    custom_indexes do
+      index [:owner_id, :status, :updated_at], name: "games_owner_status_idx"
+    end
+  end
+
+  actions do
+    defaults [:read]
+
+    read :list_mine do
+      description "Return all of the actor's games."
+      prepare build(filter: expr(owner_id == ^actor(:id)), sort: [updated_at: :desc])
+    end
+  end
+
+  attributes do
+    uuid_primary_key :id
+
+    attribute :title, :string do
+      allow_nil? false
+      constraints min_length: 1, max_length: 120
+    end
+
+    attribute :status, :atom do
+      allow_nil? false
+      default :active
+      constraints one_of: @statuses
+    end
+
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
+  end
+end
+```
+
+The migration is a real win for Ash. In Phoenix it is a separate artifact you manage after the fact, generators or not. In Ash, because the whole truth of the resource lives in that one file, the framework can compare the file to the current database and generate the migration for me. I change the resource, run `mix ash.codegen`, and the migration is handled. Running the `ash.codegen` and `ash_postgres.migrate` is probably the thing I am most likely to forget but even that is something Ash helps you out with because Ash will tell you when you try to pull up the website that you have forgotten these steps and provide you with a button to execute them.
+
+And that is just the surface. Inside a resource you can also define policies, calculations, and relationships. In Game Night that same file is where I declare the JSON:API and all the PubSub that pushes resource changes out to the frontend. One resource definition feeds the database, the authorization rules, the API, and the live UI updates. That is the "Declare Once, Derive the Rest" promise made concrete, and it is exactly the promise I had been breaking by hand in the React version.
+
+## The payoff: real-time without the glue
+
+In Game Night I wanted to have the ability for players to see what each other are doing with a schedule live. This allows everyone to see the schedule evolve as they work on it - I might be "Available If" on a night but see that almost everyone is "Available". It tightens the feedback loop between players and the GM. That feature is when it became obvious that dropping the split stack was going to pay off big time.
+
+It works because the two halves cooperate. Ash gives a resource a `pub_sub` block, so I declare which changes get published and where. And because a LiveView is essentially a GenServer, receiving one of those events looks like exactly the Elixir you already know:
+
+```elixir
+def handle_info(
+      %Phoenix.Socket.Broadcast{event: "update", topic: "game:" <> game_id},
+      %{assigns: %{game_id: game_id}} = socket
+    ) do
+  {:noreply, assign(socket, schedule: get_schedules())}
+end
+```
+
+The `game_id` is the key here. Binding it from the topic and from the socket's assigns in the same function head means the clause only matches when the two are equal, so a given view only reacts to events for the exact game it is showing, not every game's schedule changes. Once those assigns update, LiveView recomputes the rendered page and sends only the differences down to the browser. I do not write any of that.
+
+Compare that to the version I deleted. In the split app, this same feature meant a WebSocket subscription on the client, an event handler to receive changes, and code to reconcile them into the client-side store, all of it living in a language and a runtime separate from where the data actually changed. Here, all of that is gone, and every line involved is plain Elixir sitting next to the resource it reacts to. That is the whole argument in miniature: not less code as a slogan, but a real, visible, real-time feature with no second runtime to keep in step.
+
+## Standing on Rails' shoulders
+
+If you are coming from Rails or Django, the lineage here should make you feel at home rather than lost. Phoenix is meant to be to Elixir what Rails is to Ruby: the productive, batteries-included web framework you reach for by default. That is not an accident. Chris McCord came out of the Rails world, and he built Phoenix because he loved how productive Rails made him but kept hitting a wall when he wanted real-time features. His early prototype for live-updating pages worked, then kept falling over on Ruby's concurrency model, which is what pushed him toward Elixir and the Erlang virtual machine underneath it.
+
+So Phoenix kept the parts of Rails that made it a joy to work with: the conventions, the generators, the fast feedback loop, and traded away the parts that made real-time hard. The framework's own thesis, from the "Programming Phoenix" book, is a pipeline: productive, then reliable, then fast. You do not have to choose between developer happiness and a runtime that can hold hundreds of thousands of live connections. That is the whole pitch, and after using it I believe it.
+
+Ash sits one layer up from that. It is deliberately not a web framework and not a replacement for Phoenix; it complements Phoenix by owning the application layer, the part where you model your domain and everything that follows from it. Zach Daniel built it to kill the plumbing that every serious application needs but that never makes an application special: authentication, an admin interface, APIs, authorization policies, migrations. One writeup frames it as the part of the iceberg below the waterline, the unglamorous mass that sinks your time. Ash's answer is the tagline I keep coming back to, "model your domain, derive the rest," and it is similar to the idea Rails proved years ago that great productivity comes from good conventions doing the repetitive work for you.
+
+## It earned its keep at work, too
+
+At this point you might be thinking this is all fine for a game-scheduling app, but that hobby projects and production systems are different animals. Fair. So it is worth saying that the language I reach for on the weekend also earned its place where the stakes were real.
+
+At my current employer we had a problem with how our workflow engine talked to third-party systems. The answer at the time was the "handler," a tiny Ruby program that performs one task for a workflow. A few were utilitarian, like reshaping a large set of data, but most were just REST calls out to systems like ServiceNow and Salesforce. Because each operation was its own little independent program, the code debt piled up enormously. We needed a central integration system, something that let semi-technical builders test and wire up a wide variety of systems without hand-rolling a program every time. That idea is not Elixir-specific. You could build the general concept in plenty of languages.
+
+Where Elixir stopped being a preference and became the answer was when we looked at the volume. Our customers were not making a dozen integration calls, they were heading towards hundreds or thousands per second. And we needed a system where one workflow firing off a batch of large requests could not lock everything else out of getting its work done. That second requirement is the real one. It is not raw throughput, it is isolation under load, making sure no single noisy job starves the rest.
+
+That is precisely what the Erlang virtual machine is built for. Cheap, isolated processes and preemptive scheduling mean one heavy workflow gets its slice and no more, while everything else keeps flowing. Elixir's model of concurrency was not a nice-to-have there, it was the obvious call. And our scale was modest next to what this runtime can do. Discord runs its real-time messaging on Elixir and has served five million concurrent users on it, which is the kind of scalability that turns a scaling crisis into a non-event and has the potential for large savings in infrastructure costs. The same qualities that make my side projects pleasant to write are the ones that make the platform hold up when real traffic arrives.
+
+## The honest costs
+
+I would not feel right if I didn't tell you where it hurts, so here is the fair version. Most of the time with Ash the right answer really is that it just works, and when I get something wrong the community has been genuinely helpful. But the price is worth mentioning.
+
+Ash is still niche. It is also very opinionated, and you either do things the Ash way or you spend your evening fighting the framework instead of writing your app. That opinionated nature is most of why it saves you so much time, but it is a real adjustment if you are used to wiring everything yourself or having total control. The learning curve is more about absorbing the conventions than about the code. The documentation, while extensive, can be a lot to take in when you are just getting started.
+
+The sharper pain is the errors. The Ash DSL is intuitive when things go right, but it is built on macros, so when things go really wrong the error messages and stack traces can be close to unreadable for anyone who is not already an expert. You will sometimes stare at a wall of output that boils down to a small syntax mistake, without an obvious pointer to which line you fumbled. The tooling lags behind the Ash magic, too. Editors and language servers do not always understand Ash's auto-generated functions which can be frustrating when you add a new action, go to call it, and your IDE thinks that a perfectly valid function is not defined. I've wasted time battling missing functions in my IDE only to realize that the LSP hasn't detected that they've been generated.
+
+None of these are dealbreakers for me. But they bite hardest exactly when you are new, which is the moment you are least able to tell a framework problem from a mistake of your own. If you go in expecting that, the early friction is a lot easier to sit with.
+
+## Momentum, the thing side projects live or die on
+
+Side projects do not usually die in production. There are a lot of places where a side project can die and I think we've all seen one of our personal side projects die this way. Two big ways they die for me are when it takes too long to go from having an idea to having something that runs, or when I come back a month later and it takes far too long to understand them. Anything that shortens those two time frames is worth more to a side project than raw performance ever will be, and this is where the stack quietly earns its place for me.
+
+Getting started is almost embarrassingly quick. Phoenix and Ash both ship excellent generators, and the Ash site basically lets you assemble your starting point from a menu. Need password authentication, a JSON:API, and built-in soft deletion? Tick the boxes, run the command, and it is wired up. Want to work on your business logic before you have built any UI? `ash_admin` gives you a working interface for free. Want event sourcing? Add `ash_events`. The list keeps going, and every item on it is a weekend you did not spend on piecing together a bunch of libraries or worse yet creating it yourself.
+
+Coming back is the other half, and it matters more than people admit. When I return to Game Night after weeks away, I do not have to reverse-engineer my own project, because everything about a domain and its resources lives in one place I can just read. The code re-explains itself. The only thing I have to knock the rust off of is the Ash way, the handful of conventions and hidden nuggets I picked up the first time and let slip. That is a much smaller tax than relearning a sprawl of files that each hold one-third of an idea.
+
+## So should you?
+
+If a friend asked me whether to build their next thing in Elixir, my honest answer is that almost any developer can learn it and be productive with Phoenix and Ash faster than they expect. The language has a reputation for being esoteric, and it is not. Once the basic concepts click and you have adopted the functional way of thinking, it is approachable and, more to the point, a pleasure to work in.
+
+The one real hesitation I have is hiring at speed. If you need to grow a team quickly, hiring dozens of experienced people over a few months, a big language like Java or JavaScript makes that easier simply because the talent pool is larger. The Elixir community is excellent and full of genuinely talented people, but it is smaller. That is a fact about the job market, not a flaw in the language, and it is worth being clear-eyed about before you bet a company on it.
+
+For a side project this disappears completely. There is just the question of what you will enjoy building with on a Saturday, and what will still make sense to you the next time you sit down. For me the answer has been Elixir, Phoenix, and Ash, and the deciding factor is the one I opened with. When I let the framework declare things once and derive the rest, instead of fighting it out of habit, the work gets out of its own way. The whole reason I do side projects is to learn and create new things, not struggle through meaningless boilerplate or anxiety-inducing complex syntax.
+
+## Sources
+
+Phoenix and LiveView:
+
+- [How We Got to LiveView](https://fly.io/blog/how-we-got-to-liveview/), Chris McCord, Fly.io blog
+- [Phoenix 1.0: the framework for the modern web just landed](https://www.phoenixframework.org/blog/phoenix-10-the-framework-for-the-modern-web-just-landed), Chris McCord, Phoenix blog
+- [Programming Phoenix 1.4: Productive |> Reliable |> Fast](https://pragprog.com/titles/phoenix14/programming-phoenix-1-4/), Chris McCord, Bruce Tate, José Valim, Pragmatic Bookshelf
+
+Ash:
+
+- [What is Ash?](https://hexdocs.pm/ash/what-is-ash.html), official Ash documentation
+- [Ash Framework](https://ash-hq.org/), AshHQ ("model your domain, derive the rest")
+- [Everything you need to know about Ash Framework](https://alembic.com.au/ash-framework), Alembic
+- [The Essence of Ash Framework](https://alembic.com.au/blog/essence-of-ash-framework), Josh Price, Alembic
+- [My thoughts on Ash](https://elixirforum.com/t/my-thoughts-on-ash/69829), Elixir Forum thread, including replies from Zach Daniel
+
+Elixir at scale:
+
+- [Real-time Communication at Scale with Elixir at Discord](https://elixir-lang.org/blog/2020/10/08/real-time-communication-at-scale-with-elixir-at-discord/), Elixir blog
+- [WhatsApp Has 2 Million Connections Per Server. What's Your Number?](https://dev.to/codesavvy_labs_fb381b820c/whatsapp-has-2-million-connections-per-server-whats-your-number-3gaa), dev.to
+
+_Header image: "The Alchemist," David Teniers the Younger (17th century), public domain, via [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:David_Teniers_-_The_Alchemist_Cat689.jpg)._

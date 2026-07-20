@@ -60,6 +60,16 @@ export const articles: Article[] = [
     slug: 'agent-security-lies',
     image: '/articles/agent-security-lies/header-somme-trench-map-og.jpg',
   },
+  {
+    title: "Elixir - Why It's My Side Project Language",
+    summary:
+      "Why Elixir, Phoenix, and Ash have become my default side-project stack. A journey from a comfortable Java and React setup to a single consolidated Elixir stack, and what Ash's \"Declare Once, Derive the Rest\" actually buys you.",
+    date: '2026-07-20',
+    tags: ['Elixir', 'Phoenix', 'Ash', 'SideProjects', 'WebDevelopment'],
+    slug: 'elixir-why-its-my-side-project-language',
+    image:
+      '/articles/elixir-why-its-my-side-project-language/header-the-alchemist-og.jpg',
+  },
 ];
 
 export function sortedArticles(): Article[] {
